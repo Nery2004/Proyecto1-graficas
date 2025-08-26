@@ -102,6 +102,8 @@ pub fn cast_ray(
   };
 
   // compute exact hit point in world coordinates
+  let perp_wall_dist = perp_wall_dist.abs();
+  // compute exact hit point in world coordinates
   let hit_x = player.pos.x + perp_wall_dist * ray_dir_x;
   let hit_y = player.pos.y + perp_wall_dist * ray_dir_y;
 

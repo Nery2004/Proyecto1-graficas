@@ -63,21 +63,11 @@ impl Framebuffer {
 
             // If we have a wall texture and slices, draw them on top as vertical scaled slices
             if let (Some(wall_tex), Some(slices)) = (wall_texture_opt, slices_opt) {
-                let tw = wall_tex.width as f32;
-                let th = wall_tex.height as f32;
-
                 for (x, top, bottom, tex_u, impact) in slices.iter() {
                     // skip degenerate slices
                     if bottom <= top {
                         continue;
                     }
-
-                    // source: choose column from texture based on tex_u (0..1)
-                    let mut sx = (tex_u * tw) as f32;
-                    if sx < 0.0 { sx = 0.0; }
-                    if sx >= tw { sx = tw - 1.0; }
-
-                    let source = Rectangle::new(sx, 0.0, 1.0, th);
 
                     // choose which texture to draw for this slice (portal or wall)
                     let tex_to_draw: &Texture2D = if *impact == 'g' {
@@ -89,10 +79,21 @@ impl Framebuffer {
                         wall_tex
                     };
 
+                    // source: choose column from the chosen texture based on tex_u (0..1)
+                    let tw = tex_to_draw.width as f32;
+                    let th = tex_to_draw.height as f32;
+                    let mut sx = (tex_u * tw) as f32;
+                    if sx < 0.0 { sx = 0.0; }
+                    if sx >= tw { sx = tw - 1.0; }
+
+                    let source = Rectangle::new(sx, 0.0, 1.0, th);
                     // destination: scale that column to the stake height on screen
                     let dest = Rectangle::new(*x as f32, *top as f32, 1.0, *bottom as f32 - *top as f32);
-
                     renderer.draw_texture_pro(tex_to_draw, source, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
+
+                    // Draw a 1px top border to simulate a ceiling edge for each wall slice
+                    let border_color = Color::new(20, 20, 20, 255);
+                    renderer.draw_rectangle(*x as i32, *top as i32, 1, 1, border_color);
                 }
             }
         }
