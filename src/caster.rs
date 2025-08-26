@@ -34,10 +34,10 @@ pub fn cast_ray(
   let delta_dist_x = if ray_dir_x.abs() < f32::EPSILON { f32::INFINITY } else { block_size as f32 / ray_dir_x.abs() };
   let delta_dist_y = if ray_dir_y.abs() < f32::EPSILON { f32::INFINITY } else { block_size as f32 / ray_dir_y.abs() };
 
-  let mut step_x: i32 = 0;
-  let mut step_y: i32 = 0;
-  let mut side_dist_x: f32 = 0.0;
-  let mut side_dist_y: f32 = 0.0;
+  let step_x: i32;
+  let step_y: i32;
+  let mut side_dist_x: f32;
+  let mut side_dist_y: f32;
 
   // calculate step and initial sideDist
   if ray_dir_x < 0.0 {

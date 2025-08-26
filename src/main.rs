@@ -18,6 +18,14 @@ use raylib::prelude::*;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::f32::consts::PI;
+use rand::random;
+
+#[derive(Clone)]
+struct Ghost {
+  pos: Vector2,
+  dir: Vector2,
+  speed: f32,
+}
 
 fn cell_to_color(cell: char) -> Color {
   match cell {
@@ -177,6 +185,8 @@ fn render_minimap(
   block_size: usize,
   scale: u32,
   margin: u32,
+  pill_tex: Option<&Texture2D>,
+  ghost_red_tex: Option<&Texture2D>,
 ) {
   // compute minimap size
   let maze_w = maze[0].len() as u32;
@@ -196,14 +206,14 @@ fn render_minimap(
     }
   }
 
-  // draw maze cells
+  // draw maze cells and sprites
   for (j, row) in maze.iter().enumerate() {
     for (i, &cell) in row.iter().enumerate() {
       let color = match cell {
         ' ' => Color::BLACK,
         '+' | '-' | '|' => Color::new(70, 130, 180, 255), // steel blue for walls
         'g' => Color::GREEN,
-        _ => Color::WHITE,
+        _ => Color::BLACK,
       };
       framebuffer.set_current_color(color);
       let px = x0 + (i as u32) * scale;
@@ -213,6 +223,47 @@ fn render_minimap(
           framebuffer.set_pixel(px + xx, py + yy);
         }
       }
+
+      // draw sprites on top: '.' = pill, 'r' or 'R' = red ghost
+      match cell {
+        '.' => {
+          if let Some(t) = pill_tex {
+            // draw the pill texture scaled to cell
+            let _src = Rectangle::new(0.0, 0.0, t.width as f32, t.height as f32);
+            let _dest = Rectangle::new(px as f32, py as f32, scale as f32, scale as f32);
+            // we cannot draw here with raylib directly; we'll approximate by filling the cell white to represent a pill
+            framebuffer.set_current_color(Color::WHITE);
+            for yy in 0..scale {
+              for xx in 0..scale {
+                framebuffer.set_pixel(px + xx, py + yy);
+              }
+            }
+          } else {
+            framebuffer.set_current_color(Color::WHITE);
+            let cx = px + scale/2;
+            let cy = py + scale/2;
+            framebuffer.set_pixel(cx, cy);
+          }
+        }
+        'r' | 'R' => {
+          if let Some(_t) = ghost_red_tex {
+            // draw ghost placeholder using red square (actual texture drawing not possible on Image buffer here)
+            framebuffer.set_current_color(Color::RED);
+            for yy in 0..scale {
+              for xx in 0..scale {
+                framebuffer.set_pixel(px + xx, py + yy);
+              }
+            }
+          } else {
+            framebuffer.set_current_color(Color::RED);
+            let cx = px + scale/2;
+            let cy = py + scale/2;
+            framebuffer.set_pixel(cx, cy);
+          }
+        }
+        _ => {}
+      }
+
     }
   }
 
@@ -257,14 +308,14 @@ fn main() {
 
   let (mut window, raylib_thread) = raylib::init()
     .size(window_width, window_height)
-    .title("Raycaster Example")
+    .title("Pacman Horror Game ")
     .log_level(TraceLogLevel::LOG_WARNING)
     .build();
 
   let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
   framebuffer.set_background_color(Color::new(50, 50, 100, 255));
 
-  let maze = load_maze("maze.txt");
+  let mut maze = load_maze("maze.txt");
   let mut player = Player {
     pos: Vector2::new(150.0, 150.0),
     a: PI / 3.0,
@@ -285,7 +336,39 @@ fn main() {
     Err(_) => None,
   };
 
+  // count total pills present in the maze (cells with '.')
+  let mut total_pills: i32 = 0;
+  for row in maze.iter() {
+    for &c in row.iter() {
+      if c == '.' { total_pills += 1; }
+    }
+  }
+
+  let mut collected_pills: i32 = 0;
+
+  // extract initial ghosts from the maze and track them as entities
+  let mut ghosts: Vec<Ghost> = Vec::new();
+  // iterate by indices so we can mutate maze in-place when extracting ghosts
+  for j in 0..maze.len() {
+    for i in 0..maze[0].len() {
+      let cell = maze[j][i];
+      if cell == 'r' || cell == 'R' {
+        let gx = (i as f32 + 0.5) * block_size as f32;
+        let gy = (j as f32 + 0.5) * block_size as f32;
+        ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0 });
+        // clear marker so minimap draws ghost from entity list only
+        maze[j][i] = ' ';
+      }
+    }
+  }
+
   let mut last_frame = Instant::now();
+
+  // load sprite textures for minimap
+  let sprites_pastillas = window.load_texture(&raylib_thread, "assets/sprites/pastillas.png");
+  let sprites_pastillas = match sprites_pastillas { Ok(t) => Some(t), Err(_) => None };
+  let sprite_fantasma_rojo = window.load_texture(&raylib_thread, "assets/sprites/fantasma_rojo.png");
+  let sprite_fantasma_rojo = match sprite_fantasma_rojo { Ok(t) => Some(t), Err(_) => None };
 
   while !window.window_should_close() {
     // compute delta time (seconds)
@@ -364,6 +447,16 @@ fn main() {
   // apply resolved position
   player.pos = resolved;
 
+  // check pill pickup at player's current cell
+  let pcell_x = (player.pos.x as usize) / block_size;
+  let pcell_y = (player.pos.y as usize) / block_size;
+  if pcell_y < maze.len() && pcell_x < maze[0].len() {
+    if maze[pcell_y][pcell_x] == '.' {
+      maze[pcell_y][pcell_x] = ' ';
+      collected_pills += 1;
+    }
+  }
+
     let mut mode = "3D";
 
     if window.is_key_down(KeyboardKey::KEY_M) {
@@ -410,32 +503,96 @@ fn main() {
   };
 
   if show_minimap {
-    render_minimap(&mut framebuffer, &maze, &player, block_size, minimap_scale, minimap_margin);
+    render_minimap(&mut framebuffer, &maze, &player, block_size, minimap_scale, minimap_margin, sprites_pastillas.as_ref(), sprite_fantasma_rojo.as_ref());
   }
-
-  // draw a simple FPS counter in top-left (above minimap)
   // compute fps
   let fps = if dt > 0.0 { (1.0 / dt).round() as i32 } else { 0 };
-  // render fps as text using small rectangles for digits (very small, avoids fonts)
-  let mut fps_str = format!("FPS:{}", fps);
-  framebuffer.set_current_color(Color::WHITE);
-  let mut tx = minimap_margin as i32;
-  let ty = 2i32; // small top offset
-  for (i, ch) in fps_str.chars().enumerate() {
-    let cx = tx + (i as i32) * 8;
-    // draw small rect per character (placeholder: a filled rect for each char)
-    framebuffer.set_current_color(Color::WHITE);
-    for yy in 0..6 {
-      for xx in 0..5 {
-        let px = (cx + xx) as u32;
-        let py = (ty + yy) as u32;
-        framebuffer.set_pixel(px, py);
+
+  // 3.5 move ghosts: simple AI - if within chase_radius chase player, else wander
+  let chase_radius = 300.0;
+  for ghost in ghosts.iter_mut() {
+    let to_player = player.pos - ghost.pos;
+    let dist = to_player.length();
+    let mut desired = ghost.dir;
+    if dist < chase_radius {
+      // chase
+      if to_player.length() > 0.0 {
+        let mut tp = to_player;
+        tp.normalize();
+        desired = tp;
+      } else {
+        desired = Vector2::new(0.0, 0.0);
+      }
+    } else {
+      // wander slowly: small random perturbation
+      let wobble = 0.5;
+      desired.x += (rand::random::<f32>() - 0.5) * wobble;
+      desired.y += (rand::random::<f32>() - 0.5) * wobble;
+      if desired.length() == 0.0 {
+        desired = Vector2::new(1.0, 0.0);
+      } else {
+        let mut d = desired;
+        d.normalize();
+        desired = d;
+      }
+    }
+    ghost.dir = desired;
+    // attempt movement
+    let move_step = ghost.dir * ghost.speed * dt;
+  let candidate = ghost.pos + move_step;
+    // ghost collision vs walls: prevent entering wall cells using simple AABB test
+    let gx_cell = (candidate.x as usize) / block_size;
+    let gy_cell = (candidate.y as usize) / block_size;
+    if gy_cell < maze.len() && gx_cell < maze[0].len() {
+      if maze[gy_cell][gx_cell] == ' ' {
+        ghost.pos = candidate;
+      } else {
+        // hit wall: bounce direction
+        ghost.dir = Vector2::new(-ghost.dir.x, -ghost.dir.y);
       }
     }
   }
 
+  // detect ghost-player collision (simple distance check)
+  let mut player_hit = false;
+  for ghost in ghosts.iter() {
+    let d2 = (ghost.pos.x - player.pos.x)*(ghost.pos.x - player.pos.x) + (ghost.pos.y - player.pos.y)*(ghost.pos.y - player.pos.y);
+    let min_dist = 20.0 + 16.0; // ghost radius + player radius
+    if d2 < min_dist*min_dist {
+      player_hit = true;
+      break;
+    }
+  }
+  if player_hit {
+    // simple response: reset player position to start
+    player.pos = Vector2::new(150.0, 150.0);
+  }
+
     // 4. swap buffers - pass wall texture and slices when in 3D
-  framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref());
+  // prepare pill positions (from maze) and ghost positions (from entities)
+  let mut pill_positions: Vec<(u32,u32)> = Vec::new();
+  let mut ghost_positions: Vec<(u32,u32)> = Vec::new();
+  let map_x0 = minimap_margin;
+  let map_y0 = minimap_margin;
+  for (j, row) in maze.iter().enumerate() {
+    for (i, &cell) in row.iter().enumerate() {
+      if cell == '.' {
+        // position at cell center
+        let px = map_x0 + (i as u32) * minimap_scale + minimap_scale / 2;
+        let py = map_y0 + (j as u32) * minimap_scale + minimap_scale / 2;
+        pill_positions.push((px, py));
+      }
+    }
+  }
+  // ghost positions derived from moving entities so they appear even when maze markers were removed
+  for g in ghosts.iter() {
+    let gx = map_x0 as f32 + (g.pos.x / block_size as f32) * minimap_scale as f32;
+    let gy = map_y0 as f32 + (g.pos.y / block_size as f32) * minimap_scale as f32;
+    // convert to center-aligned u32
+    ghost_positions.push((gx as u32, gy as u32));
+  }
+
+  framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref(), sprites_pastillas.as_ref(), Some(&pill_positions), sprite_fantasma_rojo.as_ref(), Some(&ghost_positions), fps, collected_pills, total_pills, minimap_scale);
 
     thread::sleep(Duration::from_millis(16));
   }

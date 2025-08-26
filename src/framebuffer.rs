@@ -55,11 +55,40 @@ impl Framebuffer {
         wall_texture_opt: Option<&Texture2D>,
         portal_texture_opt: Option<&Texture2D>,
         slices_opt: Option<&Vec<(u32, usize, usize, f32, char)>>,
+        pill_tex_opt: Option<&Texture2D>,
+        pill_positions_opt: Option<&Vec<(u32,u32)>>,
+        ghost_tex_opt: Option<&Texture2D>,
+        ghost_positions_opt: Option<&Vec<(u32,u32)>>,
+        // UI values
+        fps: i32,
+        collected_pills: i32,
+        total_pills: i32,
+        minimap_cell_size: u32,
     ) {
         if let Ok(texture) = window.load_texture_from_image(raylib_thread, &self.color_buffer) {
             let mut renderer = window.begin_drawing(raylib_thread);
             // Draw the framebuffer first
             renderer.draw_texture(&texture, 0, 0, Color::WHITE);
+
+            // Draw minimap sprites (pills and ghosts) on top of the framebuffer texture
+            if let (Some(pill_tex), Some(pill_positions)) = (pill_tex_opt, pill_positions_opt) {
+                for (px, py) in pill_positions.iter() {
+                    // treat (px,py) as center of the minimap cell and draw texture centered
+                    let src = Rectangle::new(0.0, 0.0, pill_tex.width as f32, pill_tex.height as f32);
+                    let half = minimap_cell_size as f32 * 0.5;
+                    let dest = Rectangle::new(*px as f32 - half, *py as f32 - half, minimap_cell_size as f32, minimap_cell_size as f32);
+                    renderer.draw_texture_pro(pill_tex, src, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
+                }
+            }
+            if let (Some(ghost_tex), Some(ghost_positions)) = (ghost_tex_opt, ghost_positions_opt) {
+                for (px, py) in ghost_positions.iter() {
+                    // draw ghost centered on given minimap coordinate
+                    let src = Rectangle::new(0.0, 0.0, ghost_tex.width as f32, ghost_tex.height as f32);
+                    let half = minimap_cell_size as f32 * 0.5;
+                    let dest = Rectangle::new(*px as f32 - half, *py as f32 - half, minimap_cell_size as f32, minimap_cell_size as f32);
+                    renderer.draw_texture_pro(ghost_tex, src, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
+                }
+            }
 
             // If we have a wall texture and slices, draw them on top as vertical scaled slices
             if let (Some(wall_tex), Some(slices)) = (wall_texture_opt, slices_opt) {
@@ -96,6 +125,21 @@ impl Framebuffer {
                     renderer.draw_rectangle(*x as i32, *top as i32, 1, 1, border_color);
                 }
             }
+
+            // Draw readable UI text on top using raylib text instead of the pixel font
+            let font_size = 20;
+            let padding = 12;
+            let fps_s = format!("FPS: {}", fps);
+            // place FPS at top-right
+            let fps_x = (self.width as i32) - 150;
+            let fps_y = padding;
+            renderer.draw_text(&fps_s, fps_x, fps_y, font_size, Color::WHITE);
+
+            // draw pill counter at bottom-left
+            let counter_s = format!("{}/{}", collected_pills, total_pills);
+            let counter_x = padding;
+            let counter_y = (self.height as i32) - padding - font_size;
+            renderer.draw_text(&counter_s, counter_x, counter_y, font_size, Color::WHITE);
         }
     }
 }
