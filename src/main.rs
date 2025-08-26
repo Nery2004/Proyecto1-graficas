@@ -16,7 +16,7 @@ use player::{Player, process_events};
 
 use raylib::prelude::*;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::f32::consts::PI;
 
 fn cell_to_color(cell: char) -> Color {
@@ -90,15 +90,33 @@ fn render_world(
   maze: &Maze,
   block_size: usize,
   player: &Player,
-) -> Vec<(u32, usize, usize, f32)> {
+) -> Vec<(u32, usize, usize, f32, char)> {
   let num_rays = framebuffer.width;
 
   // let hw = framebuffer.width as f32 / 2.0;   // precalculated half width
   let hh = framebuffer.height as f32 / 2.0;  // precalculated half height
 
-  framebuffer.set_current_color(Color::WHITESMOKE);
+  // draw sky (top half) and floor (bottom half)
+  let sky_color = Color::new(3, 6, 46, 255); // #03062e
+  let floor_color = Color::BLACK;
 
-  let mut slices: Vec<(u32, usize, usize, f32)> = Vec::new();
+  // sky
+  framebuffer.set_current_color(sky_color);
+  for y in 0..(framebuffer.height / 2) {
+    for x in 0..framebuffer.width {
+      framebuffer.set_pixel(x, y);
+    }
+  }
+
+  // floor
+  framebuffer.set_current_color(floor_color);
+  for y in (framebuffer.height / 2)..framebuffer.height {
+    for x in 0..framebuffer.width {
+      framebuffer.set_pixel(x, y);
+    }
+  }
+
+  let mut slices: Vec<(u32, usize, usize, f32, char)> = Vec::new();
 
   for i in 0..num_rays {
     let current_ray = i as f32 / num_rays as f32; // current ray divided by total rays
@@ -114,29 +132,113 @@ fn render_world(
     let stake_top = (hh - (stake_height / 2.0)) as usize;
     let stake_bottom = (hh + (stake_height / 2.0)) as usize;
 
-    // compute texture U coordinate based on impact point inside the cell
-    // intersect.impact is the cell char, intersect.hit_x/hit_y are world coords
-    let cell_x = (intersect.hit_x as usize) % block_size;
-    let cell_y = (intersect.hit_y as usize) % block_size;
+    // compute texture U coordinate using the vertical flag from the raycaster
+    // intersect.hit_x/hit_y are world coords inside the cell
+    let local_x = (intersect.hit_x % block_size as f32) / block_size as f32; // 0..1
+    let local_y = (intersect.hit_y % block_size as f32) / block_size as f32; // 0..1
 
-    // Decide whether the impact is on a vertical or horizontal face by checking the
-    // fractional part closer to edges; a simple heuristic: compare distances to cell borders
-    let fx = (intersect.hit_x % block_size as f32) / block_size as f32; // 0..1
-    let fy = (intersect.hit_y % block_size as f32) / block_size as f32; // 0..1
+    // flip U depending on ray direction to avoid mirrored textures
+    let ray_dx = a.cos();
+    let ray_dy = a.sin();
 
-    // We'll use x within the cell as tex U for vertical faces, y for horizontal faces
-    let tex_u = if fx < 0.0 || fx > 1.0 || fy < 0.0 || fy > 1.0 {
-      0.0
-    } else if fx.abs() < fy.abs() {
-      fx
+    let mut tex_u = if intersect.vertical {
+      // vertical face: use fractional x inside the cell
+      local_x
     } else {
-      fy
+      // horizontal face: use fractional y inside the cell
+      local_y
     };
 
-    slices.push((i as u32, stake_top, stake_bottom, tex_u));
+    if intersect.vertical {
+      if ray_dx > 0.0 { tex_u = 1.0 - tex_u; }
+    } else {
+      if ray_dy < 0.0 { tex_u = 1.0 - tex_u; }
+    }
+
+  slices.push((i as u32, stake_top, stake_bottom, tex_u, intersect.impact));
   }
 
   slices
+}
+
+fn render_minimap(
+  framebuffer: &mut Framebuffer,
+  maze: &Maze,
+  player: &Player,
+  block_size: usize,
+  scale: u32,
+  margin: u32,
+) {
+  // compute minimap size
+  let maze_w = maze[0].len() as u32;
+  let maze_h = maze.len() as u32;
+  let map_w = maze_w * scale;
+  let map_h = maze_h * scale;
+
+  // top-right corner position
+  let x0 = framebuffer.width.saturating_sub(map_w + margin);
+  let y0 = margin;
+
+  // draw background box (semi-transparent dark)
+  framebuffer.set_current_color(Color::new(20, 20, 20, 200));
+  for yy in 0..map_h {
+    for xx in 0..map_w {
+      framebuffer.set_pixel(x0 + xx, y0 + yy);
+    }
+  }
+
+  // draw maze cells
+  for (j, row) in maze.iter().enumerate() {
+    for (i, &cell) in row.iter().enumerate() {
+      let color = match cell {
+        ' ' => Color::BLACK,
+        '+' | '-' | '|' => Color::new(70, 130, 180, 255), // steel blue for walls
+        'g' => Color::GREEN,
+        _ => Color::WHITE,
+      };
+      framebuffer.set_current_color(color);
+      let px = x0 + (i as u32) * scale;
+      let py = y0 + (j as u32) * scale;
+      for yy in 0..scale {
+        for xx in 0..scale {
+          framebuffer.set_pixel(px + xx, py + yy);
+        }
+      }
+    }
+  }
+
+  // draw player as a small filled circle and orientation line
+  let player_x = (player.pos.x / block_size as f32) * scale as f32; // convert world to minimap pixels
+  let player_y = (player.pos.y / block_size as f32) * scale as f32;
+  let cx = x0 as f32 + player_x;
+  let cy = y0 as f32 + player_y;
+
+  // draw orientation line
+  let line_len = scale as f32 * 2.0;
+  let lx = cx + player.a.cos() * line_len;
+  let ly = cy + player.a.sin() * line_len;
+  framebuffer.set_current_color(Color::YELLOW);
+  // rasterize a simple Bresenham-like line (integer steps)
+  let steps = (line_len * 2.0) as i32;
+  for s in 0..steps {
+    let t = s as f32 / steps as f32;
+    let ix = (cx + (lx - cx) * t) as u32;
+    let iy = (cy + (ly - cy) * t) as u32;
+    framebuffer.set_pixel(ix, iy);
+  }
+
+  // draw player dot
+  framebuffer.set_current_color(Color::RED);
+  let pr = (scale as f32 / 2.0).max(1.0) as i32;
+  for oy in -pr..=pr {
+    for ox in -pr..=pr {
+      let px = cx as i32 + ox;
+      let py = cy as i32 + oy;
+      if px >= 0 && py >= 0 {
+        framebuffer.set_pixel(px as u32, py as u32);
+      }
+    }
+  }
 }
 
 fn main() {
@@ -167,12 +269,25 @@ fn main() {
       Err(_) => None,
   };
 
+  // Load portal texture for goal cell 'g'
+  let portal_texture = window.load_texture(&raylib_thread, "assets/sprites/portal.jpg");
+  let portal_texture = match portal_texture {
+    Ok(t) => Some(t),
+    Err(_) => None,
+  };
+
+  let mut last_frame = Instant::now();
+
   while !window.window_should_close() {
+    // compute delta time (seconds)
+    let now = Instant::now();
+    let dt = now.duration_since(last_frame).as_secs_f32();
+    last_frame = now;
     // 1. clear framebuffer
     framebuffer.clear();
 
-    // 2. move the player on user input
-    process_events(&mut player, &window);
+  // 2. move the player on user input (frame-rate independent)
+  process_events(&mut player, &window, dt);
 
     let mut mode = "3D";
 
@@ -182,7 +297,7 @@ fn main() {
 
     // 3. draw stuff
 
-    let slices_opt: Option<Vec<(u32, usize, usize, f32)>>;
+  let slices_opt: Option<Vec<(u32, usize, usize, f32, char)>>;
 
     if mode == "2D" {
       render_maze(&mut framebuffer, &maze, block_size, &player);
@@ -192,8 +307,14 @@ fn main() {
       slices_opt = Some(s);
     }
 
+  // draw minimap in top-right corner
+  // minimap scale: number of pixels per maze cell (increased)
+  let minimap_scale: u32 = 10;
+  let minimap_margin: u32 = 10;
+  render_minimap(&mut framebuffer, &maze, &player, block_size, minimap_scale, minimap_margin);
+
     // 4. swap buffers - pass wall texture and slices when in 3D
-    framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), slices_opt.as_ref());
+  framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref());
 
     thread::sleep(Duration::from_millis(16));
   }

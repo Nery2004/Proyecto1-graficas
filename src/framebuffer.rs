@@ -53,7 +53,8 @@ impl Framebuffer {
         window: &mut RaylibHandle,
         raylib_thread: &RaylibThread,
         wall_texture_opt: Option<&Texture2D>,
-        slices_opt: Option<&Vec<(u32, usize, usize, f32)>>,
+        portal_texture_opt: Option<&Texture2D>,
+        slices_opt: Option<&Vec<(u32, usize, usize, f32, char)>>,
     ) {
         if let Ok(texture) = window.load_texture_from_image(raylib_thread, &self.color_buffer) {
             let mut renderer = window.begin_drawing(raylib_thread);
@@ -65,7 +66,7 @@ impl Framebuffer {
                 let tw = wall_tex.width as f32;
                 let th = wall_tex.height as f32;
 
-                for (x, top, bottom, tex_u) in slices.iter() {
+                for (x, top, bottom, tex_u, impact) in slices.iter() {
                     // skip degenerate slices
                     if bottom <= top {
                         continue;
@@ -78,10 +79,20 @@ impl Framebuffer {
 
                     let source = Rectangle::new(sx, 0.0, 1.0, th);
 
+                    // choose which texture to draw for this slice (portal or wall)
+                    let tex_to_draw: &Texture2D = if *impact == 'g' {
+                        match portal_texture_opt {
+                            Some(pt) => pt,
+                            None => wall_tex,
+                        }
+                    } else {
+                        wall_tex
+                    };
+
                     // destination: scale that column to the stake height on screen
                     let dest = Rectangle::new(*x as f32, *top as f32, 1.0, *bottom as f32 - *top as f32);
 
-                    renderer.draw_texture_pro(wall_tex, source, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
+                    renderer.draw_texture_pro(tex_to_draw, source, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
                 }
             }
         }
