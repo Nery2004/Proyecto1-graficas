@@ -106,8 +106,9 @@ fn render_world(
   let hh = framebuffer.height as f32 / 2.0;  // precalculated half height
 
   // draw sky (top half) and floor (bottom half)
-  let sky_color = Color::BLACK;
-  let floor_color = Color::BLACK;
+  // sky: deep blue (#03062e), floor: dark grey (near black)
+  let sky_color = Color::new(3, 6, 46, 255); // #03062e
+  let floor_color = Color::new(18, 18, 20, 255); // very dark grey
 
   // sky
   framebuffer.set_current_color(sky_color);
@@ -132,15 +133,18 @@ fn render_world(
     let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
     let intersect = cast_ray(framebuffer, &maze, &player, a, block_size, false);
 
-    // Calculate the height of the stake
+  // Calculate the height of the stake
   let distance_to_wall = intersect.distance;// how far is this wall from the player
-    let distance_to_projection_plane = 70.0; // how far is the "player" from the "camera"
+  // increase the projection distance so walls render taller and can cover more of the screen
+  let distance_to_projection_plane = 140.0; // increased for taller walls
     // ignore invalid or infinite distances
     if !distance_to_wall.is_finite() || distance_to_wall <= 0.0 {
       continue;
     }
     // this ratio doesn't really matter as long as it is a function of distance
-    let mut stake_height = (hh / distance_to_wall) * distance_to_projection_plane;
+  let mut stake_height = (hh / distance_to_wall) * distance_to_projection_plane;
+  // boost wall height a bit so walls appear taller and can occlude more of the view
+  stake_height *= 1.5; 
     // clamp stake height so it doesn't become a huge block
     let max_stake = framebuffer.height as f32 * 2.0;
     if stake_height > max_stake { stake_height = max_stake; }
@@ -529,9 +533,16 @@ fn main() {
     near
   };
 
-  if show_minimap {
-    render_minimap(&mut framebuffer, &maze, &player, block_size, minimap_scale, minimap_margin, sprites_pastillas.as_ref(), sprite_fantasma_rojo.as_ref());
-  }
+  // always render minimap overlay from now on (drawn in swap_buffers overlay)
+  // compute minimap rect
+  let maze_w = maze[0].len() as u32;
+  let maze_h = maze.len() as u32;
+  let map_w = maze_w * minimap_scale;
+  let map_h = maze_h * minimap_scale;
+  let map_x0 = minimap_margin;
+  let map_y0 = minimap_margin;
+  let player_minimap_x = map_x0 as f32 + (player.pos.x / block_size as f32) * minimap_scale as f32;
+  let player_minimap_y = map_y0 as f32 + (player.pos.y / block_size as f32) * minimap_scale as f32;
   // compute fps
   let fps = if dt > 0.0 { (1.0 / dt).round() as i32 } else { 0 };
 
@@ -626,7 +637,7 @@ let world_pills: Vec<Vector2> = pills.iter().map(|p| Vector2::new(p.x, p.y)).col
 let world_ghosts_red: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 let world_ghosts_celeste: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 
-framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref(), sprites_pastillas.as_ref(), Some(&pill_positions), sprite_fantasma_rojo.as_ref(), Some(&ghost_positions_red), sprite_fantasma_celeste.as_ref(), Some(&ghost_positions_celeste), Some(&player.pos), player.a, player.fov, Some(&world_pills), Some(&world_ghosts_red), Some(&world_ghosts_celeste), fps, collected_pills, total_pills, minimap_scale);
+framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref(), sprites_pastillas.as_ref(), Some(&pill_positions), sprite_fantasma_rojo.as_ref(), Some(&ghost_positions_red), sprite_fantasma_celeste.as_ref(), Some(&ghost_positions_celeste), Some(&player.pos), player.a, player.fov, Some(&world_pills), Some(&world_ghosts_red), Some(&world_ghosts_celeste), fps, collected_pills, total_pills, minimap_scale, map_x0, map_y0, map_w, map_h, Some((player_minimap_x as u32, player_minimap_y as u32));
 
     thread::sleep(Duration::from_millis(16));
   }
