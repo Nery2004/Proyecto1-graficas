@@ -637,7 +637,34 @@ let world_pills: Vec<Vector2> = pills.iter().map(|p| Vector2::new(p.x, p.y)).col
 let world_ghosts_red: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 let world_ghosts_celeste: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 
-framebuffer.swap_buffers(&mut window, &raylib_thread, wall_texture.as_ref(), portal_texture.as_ref(), slices_opt.as_ref(), sprites_pastillas.as_ref(), Some(&pill_positions), sprite_fantasma_rojo.as_ref(), Some(&ghost_positions_red), sprite_fantasma_celeste.as_ref(), Some(&ghost_positions_celeste), Some(&player.pos), player.a, player.fov, Some(&world_pills), Some(&world_ghosts_red), Some(&world_ghosts_celeste), fps, collected_pills, total_pills, minimap_scale, map_x0, map_y0, map_w, map_h, Some((player_minimap_x as u32, player_minimap_y as u32));
+framebuffer.swap_buffers(
+    &mut window,
+    &raylib_thread,
+    wall_texture.as_ref(),
+    portal_texture.as_ref(),
+    slices_opt.as_ref(),
+    sprites_pastillas.as_ref(),
+    Some(&pill_positions),
+    sprite_fantasma_rojo.as_ref(),
+    Some(&ghost_positions_red),
+    sprite_fantasma_celeste.as_ref(),
+    Some(&ghost_positions_celeste),
+    Some(&player.pos),
+    player.a,
+    player.fov,
+    Some(&world_pills),
+    Some(&world_ghosts_red),
+    Some(&world_ghosts_celeste),
+    fps,
+    collected_pills,
+    total_pills,
+    minimap_scale,
+    map_x0,
+    map_y0,
+    map_w,
+    map_h,
+    Some((player_minimap_x as u32, player_minimap_y as u32)),
+);
 
     thread::sleep(Duration::from_millis(16));
   }
