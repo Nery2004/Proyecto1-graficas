@@ -804,29 +804,20 @@ fn main() {
   if window.is_key_down(KeyboardKey::KEY_RIGHT) {
     player.a -= rot_step;
   }
-  // play footsteps when any movement key is held (arrow keys or WASD)
-  let moving = window.is_key_down(KeyboardKey::KEY_DOWN)
-    || window.is_key_down(KeyboardKey::KEY_UP)
-    || window.is_key_down(KeyboardKey::KEY_LEFT)
-    || window.is_key_down(KeyboardKey::KEY_RIGHT)
-    || window.is_key_down(KeyboardKey::KEY_W)
-    || window.is_key_down(KeyboardKey::KEY_A)
-    || window.is_key_down(KeyboardKey::KEY_S)
-    || window.is_key_down(KeyboardKey::KEY_D);
-  // don't play footsteps while screamer is active
-  if moving && !screamer_active && !game_win && !game_over {
-    if !footsteps_playing {
-      if let Some(snd) = footsteps.as_ref() {
-        unsafe { raylib::ffi::PlaySound(*snd); }
-        footsteps_playing = true;
-      }
-    }
-  } else {
-    if footsteps_playing {
-      if let Some(snd) = footsteps.as_ref() {
-        unsafe { raylib::ffi::StopSound(*snd); }
-      }
-      footsteps_playing = false;
+  // play footsteps sound on discrete key presses (WASD or arrow keys)
+  let pressed_step = window.is_key_pressed(KeyboardKey::KEY_DOWN)
+    || window.is_key_pressed(KeyboardKey::KEY_UP)
+    || window.is_key_pressed(KeyboardKey::KEY_LEFT)
+    || window.is_key_pressed(KeyboardKey::KEY_RIGHT)
+    || window.is_key_pressed(KeyboardKey::KEY_W)
+    || window.is_key_pressed(KeyboardKey::KEY_A)
+    || window.is_key_pressed(KeyboardKey::KEY_S)
+    || window.is_key_pressed(KeyboardKey::KEY_D);
+  if pressed_step && !screamer_active && !game_win && !game_over {
+    if let Some(snd) = footsteps.as_ref() {
+      // restart the sound so repeated presses re-trigger it
+      unsafe { raylib::ffi::StopSound(*snd); }
+      unsafe { raylib::ffi::PlaySound(*snd); }
     }
   }
   // forward / backward (W/S or Up/Down)
