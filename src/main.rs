@@ -468,6 +468,10 @@ fn main() {
   let sprite_warning = window.load_texture(&raylib_thread, "assets/sprites/warning.png");
   let sprite_warning = match sprite_warning { Ok(t) => Some(t), Err(_) => None };
 
+  // win screen texture shown when all pills collected
+  let sprite_win = window.load_texture(&raylib_thread, "assets/sprites/win.png");
+  let sprite_win = match sprite_win { Ok(t) => Some(t), Err(_) => None };
+
   // menu state: start at home screen
   let mut in_menu = true;
   let mut menu_sel: usize = 0; // 0 = Play, 1 = Salir
@@ -508,6 +512,8 @@ fn main() {
   let _sprite_gameover = window.load_texture(&raylib_thread, "assets/sprites/gameover.png");
   let _sprite_gameover = match _sprite_gameover { Ok(t) => Some(t), Err(_) => None };
   let mut game_over: bool = false;
+  // win flag when all pills are collected
+  let mut game_win: bool = false;
 
   // timer for sky flash effect
   let mut sky_flash_timer: f32 = 0.0;
@@ -720,7 +726,7 @@ fn main() {
     || window.is_key_down(KeyboardKey::KEY_S)
     || window.is_key_down(KeyboardKey::KEY_D);
   // don't play footsteps while screamer is active
-  if moving && !screamer_active {
+  if moving && !screamer_active && !game_win && !game_over {
     if !footsteps_playing {
       if let Some(snd) = footsteps.as_ref() {
         unsafe { raylib::ffi::PlaySound(*snd); }
@@ -818,6 +824,23 @@ fn main() {
     // play eat sound once per pill collected
     if let Some(snd) = eat_sound.as_ref() {
       unsafe { raylib::ffi::PlaySound(*snd); }
+    }
+    // if all pills collected -> win
+    if collected_pills >= total_pills {
+      game_win = true;
+      // stop all sounds
+      if footsteps_playing {
+        if let Some(snd) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+        footsteps_playing = false;
+      }
+      if perseguir_playing {
+        if let Some(snd) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+        perseguir_playing = false;
+      }
+      if screamer_playing {
+        if let Some(snd) = screamer_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+        screamer_playing = false;
+      }
     }
   }
 
@@ -977,21 +1000,20 @@ fn main() {
         perseguir_playing = false;
       }
       // play screamer sound once (guard against double-play)
-      if !screamer_playing {
-        if let Some(snd) = screamer_sound.as_ref() {
-          // ensure other sounds are stopped
-          if footsteps_playing {
-            if let Some(fs) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*fs); } }
-            footsteps_playing = false;
-          }
-          if perseguir_playing {
-            if let Some(ps) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*ps); } }
-            perseguir_playing = false;
-          }
-          // mark as playing before calling PlaySound to avoid races/double-play
-          screamer_playing = true;
-          unsafe { raylib::ffi::PlaySound(*snd); }
+      if let Some(snd) = screamer_sound.as_ref() {
+        // ensure other sounds are stopped
+        if footsteps_playing {
+          if let Some(fs) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*fs); } }
+          footsteps_playing = false;
         }
+        if perseguir_playing {
+          if let Some(ps) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*ps); } }
+          perseguir_playing = false;
+        }
+  // mark as playing first to prevent re-entry, stop any existing playback then play once
+  screamer_playing = true;
+  unsafe { raylib::ffi::StopSound(*snd); }
+  unsafe { raylib::ffi::PlaySound(*snd); }
       }
     }
   }
@@ -1039,7 +1061,7 @@ let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(
       }
       perseguir_playing = false;
     }
-  } else {
+  } else if !game_win && !game_over {
     if any_ghost_sees {
       if !perseguir_playing {
         if let Some(snd) = perseguir_sound.as_ref() {
@@ -1088,6 +1110,8 @@ framebuffer.swap_buffers(
   sprite_fantasma_alert_celeste.as_ref(),
   screamer_tex.as_ref(),
   screamer_active,
+  sprite_win.as_ref(),
+  game_win,
   Some(&ghost_red_seen),
   Some(&ghost_celeste_seen),
 );

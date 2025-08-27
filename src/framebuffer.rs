@@ -87,6 +87,9 @@ impl Framebuffer {
     // screamer full-screen texture and active flag
     screamer_tex_opt: Option<&Texture2D>,
     screamer_active: bool,
+    // win full-screen texture and flag
+    win_tex_opt: Option<&Texture2D>,
+    win_active: bool,
     // per-ghost seen flags for red and celeste lists
     ghost_red_seen_opt: Option<&Vec<bool>>,
     ghost_celeste_seen_opt: Option<&Vec<bool>>,
@@ -262,6 +265,14 @@ impl Framebuffer {
                     let src = Rectangle::new(0.0, 0.0, st.width as f32, st.height as f32);
                     let dest = Rectangle::new(0.0, 0.0, self.width as f32, self.height as f32);
                     renderer.draw_texture_pro(st, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
+                }
+            }
+            // if win is active, draw win texture fullscreen on top
+            if win_active {
+                if let Some(wt) = win_tex_opt {
+                    let src = Rectangle::new(0.0, 0.0, wt.width as f32, wt.height as f32);
+                    let dest = Rectangle::new(0.0, 0.0, self.width as f32, self.height as f32);
+                    renderer.draw_texture_pro(wt, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
                 }
             }
         }
