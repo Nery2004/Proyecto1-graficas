@@ -464,10 +464,15 @@ fn main() {
   // home screen texture
   let sprite_home = window.load_texture(&raylib_thread, "assets/sprites/home.png");
   let sprite_home = match sprite_home { Ok(t) => Some(t), Err(_) => None };
+  // warning splash texture shown after pressing Play
+  let sprite_warning = window.load_texture(&raylib_thread, "assets/sprites/warning.png");
+  let sprite_warning = match sprite_warning { Ok(t) => Some(t), Err(_) => None };
 
   // menu state: start at home screen
   let mut in_menu = true;
   let mut menu_sel: usize = 0; // 0 = Play, 1 = Salir
+  let mut warning_active = false;
+  let mut warning_timer: f32 = 0.0;
 
   // create framebuffer sized to home image if available, otherwise game size
   if let Some(ht) = sprite_home.as_ref() {
@@ -499,6 +504,10 @@ fn main() {
   let mut screamer_active = false;
   let mut screamer_timer: f32 = 0.0;
   let mut screamer_playing = false;
+  // game over screen texture (kept but unused on purpose)
+  let _sprite_gameover = window.load_texture(&raylib_thread, "assets/sprites/gameover.png");
+  let _sprite_gameover = match _sprite_gameover { Ok(t) => Some(t), Err(_) => None };
+  let mut game_over: bool = false;
 
   // timer for sky flash effect
   let mut sky_flash_timer: f32 = 0.0;
@@ -525,13 +534,9 @@ fn main() {
       }
       if press_enter {
         if menu_sel == 0 {
-          // resize window back to game resolution and recreate framebuffer
-          window.set_window_size(game_width as i32, game_height as i32);
-          window_width = game_width;
-          window_height = game_height;
-          framebuffer = Framebuffer::new(game_width as u32, game_height as u32);
-          framebuffer.set_background_color(Color::new(50, 50, 100, 255));
-          in_menu = false; // start game
+          // start warning splash; actual game start (resize + framebuffer) happens after splash
+          warning_active = true;
+          warning_timer = 1.5; // show warning for 1.5 seconds
         } else {
           // exit
           break;
@@ -549,26 +554,64 @@ fn main() {
       } else {
         d.clear_background(Color::BLACK);
       }
-      // draw menu options centered
+      // if warning started, update timer and draw the warning splash instead of menu
+      if warning_active {
+        // decrement timer while showing splash
+        warning_timer -= dt;
+        if warning_timer <= 0.0 {
+          // finish splash: end drawing first to avoid borrowing conflicts
+          drop(d);
+          // then start game: resize to game resolution and recreate framebuffer
+          window.set_window_size(game_width as i32, game_height as i32);
+          window_width = game_width;
+          window_height = game_height;
+          framebuffer = Framebuffer::new(game_width as u32, game_height as u32);
+          framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+          warning_active = false;
+          in_menu = false;
+          // continue to next main loop iteration with game started
+          continue;
+        } else {
+          if let Some(wt) = sprite_warning.as_ref() {
+            d.draw_texture(wt, 0, 0, Color::WHITE);
+          } else {
+            d.clear_background(Color::BLACK);
+            d.draw_text("WARNING", (window_width/2)-100, (window_height/2)-16, 48, Color::YELLOW);
+          }
+          // next frame
+          thread::sleep(Duration::from_millis(16));
+          continue;
+        }
+      }
+      // draw menu options centered and lower on the screen
       let font_size = 48;
-      let play_y = (window_width / 2) as i32 - 40; // approximate vertical placement
-      let exit_y = play_y + 80;
-      let cx = (window_width / 2) as i32 - 80;
+      let play_text = "Play";
+      let exit_text = "Salir";
+      // measure text widths using raylib C binding to center precisely
+      let play_w = unsafe { raylib::ffi::MeasureText(std::ffi::CString::new(play_text).unwrap().as_ptr(), font_size) };
+      let exit_w = unsafe { raylib::ffi::MeasureText(std::ffi::CString::new(exit_text).unwrap().as_ptr(), font_size) };
+      let play_x = ((window_width - play_w) / 2) as i32;
+      let exit_x = ((window_width - exit_w) / 2) as i32;
+      // place the menu lower on the screen (approx 2/3 down)
+      let play_y = (window_height as i32 * 2 / 3) - (font_size / 2);
+      let exit_y = play_y + font_size + 20;
       if menu_sel == 0 {
-        d.draw_text("Play", cx, play_y, font_size, Color::YELLOW);
+        d.draw_text(play_text, play_x, play_y, font_size, Color::YELLOW);
       } else {
-        d.draw_text("Play", cx, play_y, font_size, Color::WHITE);
+        d.draw_text(play_text, play_x, play_y, font_size, Color::WHITE);
       }
       if menu_sel == 1 {
-        d.draw_text("Salir", cx, exit_y, font_size, Color::YELLOW);
+        d.draw_text(exit_text, exit_x, exit_y, font_size, Color::YELLOW);
       } else {
-        d.draw_text("Salir", cx, exit_y, font_size, Color::WHITE);
+        d.draw_text(exit_text, exit_x, exit_y, font_size, Color::WHITE);
       }
 
       // next frame
       thread::sleep(Duration::from_millis(16));
       continue;
     }
+
+  // continue normal game flow
 
     // update sky flash timer based on whether any ghost currently sees the player
     let any_ghost_sees_now = ghosts.iter().any(|g| g.sees_player);
@@ -582,6 +625,58 @@ fn main() {
       sky_flash_timer = 0.0;
       sky_flash_state = false;
     }
+    // If on game over screen, show game over and allow Restart
+    if game_over {
+      let press_enter = window.is_key_pressed(KeyboardKey::KEY_ENTER) || window.is_key_pressed(KeyboardKey::KEY_KP_ENTER);
+      let press_escape = window.is_key_pressed(KeyboardKey::KEY_ESCAPE);
+  // draw simple restart prompt (no full-screen gameover image)
+  let mut d = window.begin_drawing(&raylib_thread);
+  d.clear_background(Color::BLACK);
+  d.draw_text("Press Enter to Restart", (window_width/2)-220, (window_height/2), 32, Color::YELLOW);
+      if press_enter {
+        // restart game: reload maze, pills, ghosts, reset counters and flags
+        maze = load_maze("maze.txt");
+        pills.clear();
+        for j in 0..maze.len() {
+          for i in 0..maze[j].len() {
+            if maze[j][i] == '.' {
+              let wx = (i as f32 + 0.5) * block_size as f32;
+              let wy = (j as f32 + 0.5) * block_size as f32;
+              pills.push(Vector2::new(wx, wy));
+              maze[j][i] = ' ';
+            }
+          }
+        }
+        total_pills = pills.len() as i32;
+        collected_pills = 0;
+        ghosts.clear();
+        for j in 0..maze.len() {
+          for i in 0..maze[j].len() {
+            let cell = maze[j][i];
+            if cell == 'r' || cell == 'R' {
+              let gx = (i as f32 + 0.5) * block_size as f32;
+              let gy = (j as f32 + 0.5) * block_size as f32;
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'r', sees_player: false });
+              maze[j][i] = ' ';
+            }
+            if cell == 'c' || cell == 'C' {
+              let gx = (i as f32 + 0.5) * block_size as f32;
+              let gy = (j as f32 + 0.5) * block_size as f32;
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'c', sees_player: false });
+              maze[j][i] = ' ';
+            }
+          }
+        }
+        // reset player and flags
+        player.pos = Vector2::new(150.0, 150.0);
+        screamer_active = false; screamer_playing = false; screamer_timer = 0.0;
+        game_over = false;
+      }
+      if press_escape { break; }
+      thread::sleep(Duration::from_millis(16));
+      continue;
+    }
+
     // 1. clear framebuffer
     framebuffer.clear();
 
@@ -624,7 +719,8 @@ fn main() {
     || window.is_key_down(KeyboardKey::KEY_A)
     || window.is_key_down(KeyboardKey::KEY_S)
     || window.is_key_down(KeyboardKey::KEY_D);
-  if moving {
+  // don't play footsteps while screamer is active
+  if moving && !screamer_active {
     if !footsteps_playing {
       if let Some(snd) = footsteps.as_ref() {
         unsafe { raylib::ffi::PlaySound(*snd); }
@@ -804,8 +900,8 @@ fn main() {
         }
         screamer_playing = false;
       }
-      // reset player position after screamer ends
-      player.pos = Vector2::new(150.0, 150.0);
+  // go to game over screen after screamer
+  game_over = true;
     }
   } else {
     for ghost in ghosts.iter_mut() {
@@ -880,10 +976,22 @@ fn main() {
         if let Some(snd) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
         perseguir_playing = false;
       }
-      // play screamer sound once
-      if let Some(snd) = screamer_sound.as_ref() {
-        unsafe { raylib::ffi::PlaySound(*snd); }
-        screamer_playing = true;
+      // play screamer sound once (guard against double-play)
+      if !screamer_playing {
+        if let Some(snd) = screamer_sound.as_ref() {
+          // ensure other sounds are stopped
+          if footsteps_playing {
+            if let Some(fs) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*fs); } }
+            footsteps_playing = false;
+          }
+          if perseguir_playing {
+            if let Some(ps) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*ps); } }
+            perseguir_playing = false;
+          }
+          // mark as playing before calling PlaySound to avoid races/double-play
+          screamer_playing = true;
+          unsafe { raylib::ffi::PlaySound(*snd); }
+        }
       }
     }
   }
@@ -922,20 +1030,30 @@ let ghost_red_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| 
 let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| g.sees_player).collect();
 
   // manage perseguir (chase) sound: play while any ghost sees player, stop when none do
+  // but never start or keep perseguir playing while screamer is active
   let any_ghost_sees = ghosts.iter().any(|g| g.sees_player);
-  if any_ghost_sees {
-    if !perseguir_playing {
-      if let Some(snd) = perseguir_sound.as_ref() {
-        unsafe { raylib::ffi::PlaySound(*snd); }
-        perseguir_playing = true;
-      }
-    }
-  } else {
+  if screamer_active {
     if perseguir_playing {
       if let Some(snd) = perseguir_sound.as_ref() {
         unsafe { raylib::ffi::StopSound(*snd); }
       }
       perseguir_playing = false;
+    }
+  } else {
+    if any_ghost_sees {
+      if !perseguir_playing {
+        if let Some(snd) = perseguir_sound.as_ref() {
+          unsafe { raylib::ffi::PlaySound(*snd); }
+          perseguir_playing = true;
+        }
+      }
+    } else {
+      if perseguir_playing {
+        if let Some(snd) = perseguir_sound.as_ref() {
+          unsafe { raylib::ffi::StopSound(*snd); }
+        }
+        perseguir_playing = false;
+      }
     }
   }
 
