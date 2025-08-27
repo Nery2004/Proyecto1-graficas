@@ -163,13 +163,15 @@ fn render_world(
     if !distance_to_wall.is_finite() || distance_to_wall <= 0.0 {
       continue;
     }
-    // this ratio doesn't really matter as long as it is a function of distance
-  let mut stake_height = (hh / distance_to_wall) * distance_to_projection_plane;
-  // boost wall height a bit so walls appear taller and can occlude more of the view
-  stake_height *= 1.5; 
-    // clamp stake height so it doesn't become a huge block
-    let max_stake = framebuffer.height as f32 * 2.0;
-    if stake_height > max_stake { stake_height = max_stake; }
+  // Avoid extreme vertical stretching when extremely close to walls.
+  // Use a minimum projection distance so very small distances don't produce huge heights.
+  let min_proj_dist = (block_size as f32) * 0.6; // tweak: distances below this are clamped
+  let proj_dist = distance_to_wall.max(min_proj_dist);
+  // compute stake height using the clamped projection distance
+  let mut stake_height = (hh / proj_dist) * distance_to_projection_plane;
+  // cap wall height to at most the framebuffer height so it doesn't stretch off-screen
+  let max_stake = framebuffer.height as f32; 
+  if stake_height > max_stake { stake_height = max_stake; }
 
     // Calculate the position to draw the stake and clamp to framebuffer bounds
     let mut stake_top = (hh - (stake_height / 2.0)) as isize;
@@ -701,8 +703,8 @@ fn main() {
   let mouse_dx = mouse_x - last_mouse_x;
   let mouse_sensitivity: f32 = 0.005; // tweak to taste
   if window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_RIGHT) {
-    // subtract dx so moving mouse right rotates camera to the right
-    player.a -= mouse_dx * mouse_sensitivity;
+  // invert sign: moving mouse right rotates camera to the left (user-requested)
+  player.a += mouse_dx * mouse_sensitivity;
     // update last_mouse_x while actively rotating
     last_mouse_x = mouse_x;
   } else {
