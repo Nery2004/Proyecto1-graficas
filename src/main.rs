@@ -120,6 +120,8 @@ fn render_world(
   maze: &Maze,
   block_size: usize,
   player: &Player,
+  sky_color: Color,
+  floor_color: Color,
 ) -> Vec<(u32, usize, usize, f32, char, f32)> {
   let num_rays = framebuffer.width;
 
@@ -127,9 +129,8 @@ fn render_world(
   let hh = framebuffer.height as f32 / 2.0;  // precalculated half height
 
   // draw sky (top half) and floor (bottom half)
-  // sky: black (user requested)
-  let sky_color = Color::BLACK;
-  let floor_color = Color::new(18, 18, 20, 255); // very dark grey
+  // sky: color passed as argument (black or flashing red)
+  // floor color also passed in as argument to allow flashing both
 
   // sky
   framebuffer.set_current_color(sky_color);
@@ -376,6 +377,8 @@ fn main() {
   };
   let mut perseguir_playing = false;
 
+  // background music removed per user request
+
   let mut maze = load_maze("maze.txt");
   let mut player = Player {
     pos: Vector2::new(150.0, 150.0),
@@ -452,14 +455,37 @@ fn main() {
   // alert sprite when a ghost sees the player
   let sprite_fantasma_alert = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve.png");
   let sprite_fantasma_alert = match sprite_fantasma_alert { Ok(t) => Some(t), Err(_) => None };
+  // load separate alert sprites for red and celeste (new names)
+  let sprite_fantasma_alert_rojo = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve_rojo.png");
+  let sprite_fantasma_alert_rojo = match sprite_fantasma_alert_rojo { Ok(t) => Some(t), Err(_) => None };
+  let sprite_fantasma_alert_celeste = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve_celeste.png");
+  let sprite_fantasma_alert_celeste = match sprite_fantasma_alert_celeste { Ok(t) => Some(t), Err(_) => None };
 
+  // timer for sky flash effect
+  let mut sky_flash_timer: f32 = 0.0;
+  let mut sky_flash_state: bool = false;
   while !window.window_should_close() {
     // compute delta time (seconds)
     let now = Instant::now();
     let dt = now.duration_since(last_frame).as_secs_f32();
     last_frame = now;
+
+    // update sky flash timer based on whether any ghost currently sees the player
+    let any_ghost_sees_now = ghosts.iter().any(|g| g.sees_player);
+    if any_ghost_sees_now {
+      sky_flash_timer += dt;
+      if sky_flash_timer >= 0.2 {
+        sky_flash_timer = 0.0;
+        sky_flash_state = !sky_flash_state;
+      }
+    } else {
+      sky_flash_timer = 0.0;
+      sky_flash_state = false;
+    }
     // 1. clear framebuffer
     framebuffer.clear();
+
+  // background music removed
 
   // 2. move the player on user input (frame-rate independent) and resolve circular collision
   // We'll apply movement first, then push the player out of nearby wall cells if overlapping.
@@ -613,8 +639,12 @@ fn main() {
       render_maze(&mut framebuffer, &maze, block_size, &player);
       slices_opt = None;
     } else {
-      let s = render_world(&mut framebuffer, &maze, block_size, &player);
-        slices_opt = Some(s);
+  // choose flash color (#3d0202) for sky only when flashing
+  let flash_color = Color::new(61, 2, 2, 255); // #3d0202
+  let sky_color = if sky_flash_state { flash_color } else { Color::BLACK };
+  let floor_color = Color::new(18, 18, 20, 255);
+  let s = render_world(&mut framebuffer, &maze, block_size, &player, sky_color, floor_color);
+      slices_opt = Some(s);
     }
 
   // draw minimap in top-left corner only when player is close to a wall
@@ -801,7 +831,8 @@ framebuffer.swap_buffers(
     map_w,
     map_h,
   Some((player_minimap_x as u32, player_minimap_y as u32)),
-  sprite_fantasma_alert.as_ref(),
+  sprite_fantasma_alert_rojo.as_ref(),
+  sprite_fantasma_alert_celeste.as_ref(),
   Some(&ghost_red_seen),
   Some(&ghost_celeste_seen),
 );

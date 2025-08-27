@@ -81,8 +81,9 @@ impl Framebuffer {
         minimap_w: u32,
         minimap_h: u32,
         player_minimap_pos: Option<(u32,u32)>,
-    // alert sprite when ghost sees the player (texture)
-    alert_tex_opt: Option<&Texture2D>,
+    // alert sprites when ghost sees the player (red and celeste)
+    alert_red_tex_opt: Option<&Texture2D>,
+    alert_celeste_tex_opt: Option<&Texture2D>,
     // per-ghost seen flags for red and celeste lists
     ghost_red_seen_opt: Option<&Vec<bool>>,
     ghost_celeste_seen_opt: Option<&Vec<bool>>,
@@ -147,26 +148,31 @@ impl Framebuffer {
                     }
                 }
 
-                // red ghosts
-                if let (Some(world_ghosts), Some(ghost_tex)) = (world_ghosts_red_opt, ghost_tex_opt) {
+                // red ghosts: invisible unless they see the player — draw alert texture like celeste
+                if let Some(world_ghosts) = world_ghosts_red_opt {
                     for (idx,g) in world_ghosts.iter().enumerate() {
                         let dx = g.x - player_pos.x; let dy = g.y - player_pos.y; let ang = dy.atan2(dx);
                         let rel = angle_diff(ang, player_angle); if rel.abs() > player_fov / 2.0 { continue; }
                         let dist = (dx*dx + dy*dy).sqrt(); let perp = dist * rel.cos().abs().max(0.0001);
                         let current_ray = (rel + (player_fov/2.0)) / player_fov; let sx = current_ray * width;
                         if depth_test(sx, perp, slices_opt) { continue; }
-                        let sprite_h = (hh / perp) * distance_to_projection_plane * 1.4; let sprite_w = sprite_h;
-                        let src = Rectangle::new(0.0, 0.0, ghost_tex.width as f32, ghost_tex.height as f32);
-                        let dest = Rectangle::new(sx - sprite_w/2.0, hh - sprite_h/2.0, sprite_w, sprite_h);
-                        renderer.draw_texture_pro(ghost_tex, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
-                        // draw alert overlay if this ghost sees the player (larger)
-                        if let (Some(alert_tex), Some(seen_flags)) = (alert_tex_opt, ghost_red_seen_opt) {
+                        // make ghosts larger in the 3D view
+                        let sprite_h = (hh / perp) * distance_to_projection_plane * 1.9; let sprite_w = sprite_h;
+                        // if this red ghost sees the player, draw the alert texture as the visible sprite
+                        if let (Some(alert_tex), Some(seen_flags)) = (alert_red_tex_opt, ghost_red_seen_opt) {
                             if idx < seen_flags.len() && seen_flags[idx] {
                                 let a_src = Rectangle::new(0.0,0.0, alert_tex.width as f32, alert_tex.height as f32);
-                                // larger overlay: ~75% width of ghost sprite, positioned slightly above
-                                let a_dest = Rectangle::new(sx - (sprite_w * 0.75)/2.0, hh - sprite_h*0.9, sprite_w * 0.75, sprite_h * 0.75);
+                                // draw alert as the main sprite, larger
+                                let a_dest = Rectangle::new(sx - sprite_w/1.2, hh - sprite_h/1.1, sprite_w * 1.2, sprite_h * 1.2);
                                 renderer.draw_texture_pro(alert_tex, a_src, a_dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
+                                continue;
                             }
+                        }
+                        // fallback: if no alert texture/flags, draw original red ghost texture if provided
+                        if let Some(ghost_tex) = ghost_tex_opt {
+                            let src = Rectangle::new(0.0, 0.0, ghost_tex.width as f32, ghost_tex.height as f32);
+                            let dest = Rectangle::new(sx - sprite_w/2.0, hh - sprite_h/2.0, sprite_w, sprite_h);
+                            renderer.draw_texture_pro(ghost_tex, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
                         }
                     }
                 }
@@ -179,9 +185,10 @@ impl Framebuffer {
                         let dist = (dx*dx + dy*dy).sqrt(); let perp = dist * rel.cos().abs().max(0.0001);
                         let current_ray = (rel + (player_fov/2.0)) / player_fov; let sx = current_ray * width;
                         if depth_test(sx, perp, slices_opt) { continue; }
-                        let sprite_h = (hh / perp) * distance_to_projection_plane * 1.4; let sprite_w = sprite_h;
+                        // make celeste ghosts larger in the 3D view
+                        let sprite_h = (hh / perp) * distance_to_projection_plane * 1.9; let sprite_w = sprite_h;
                         // if this celeste ghost sees the player, draw the alert texture as the visible sprite
-                        if let (Some(alert_tex), Some(seen_flags)) = (alert_tex_opt, ghost_celeste_seen_opt) {
+                        if let (Some(alert_tex), Some(seen_flags)) = (alert_celeste_tex_opt, ghost_celeste_seen_opt) {
                             if idx < seen_flags.len() && seen_flags[idx] {
                                 let a_src = Rectangle::new(0.0,0.0, alert_tex.width as f32, alert_tex.height as f32);
                                 // draw alert as the main sprite, larger
@@ -216,9 +223,11 @@ impl Framebuffer {
             }
             // draw red ghosts
             if let (Some(ghost_tex), Some(ghost_positions)) = (ghost_tex_opt, ghost_positions_opt) {
-                for (px, py) in ghost_positions.iter() {
+                    for (px, py) in ghost_positions.iter() {
                     let src = Rectangle::new(0.0, 0.0, ghost_tex.width as f32, ghost_tex.height as f32);
-                    let dest = Rectangle::new(*px as f32 - (minimap_cell_size as f32/2.0), *py as f32 - (minimap_cell_size as f32/2.0), minimap_cell_size as f32, minimap_cell_size as f32);
+                    // enlarge minimap ghost icons slightly so they stand out
+                    let mm_size = minimap_cell_size as f32 * 1.4;
+                    let dest = Rectangle::new(*px as f32 - (mm_size/2.0), *py as f32 - (mm_size/2.0), mm_size, mm_size);
                     renderer.draw_texture_pro(ghost_tex, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
                 }
             }
@@ -226,7 +235,8 @@ impl Framebuffer {
             if let (Some(ghost_tex), Some(ghost_positions)) = (ghost_celeste_tex_opt, ghost_celeste_positions_opt) {
                 for (px, py) in ghost_positions.iter() {
                     let src = Rectangle::new(0.0, 0.0, ghost_tex.width as f32, ghost_tex.height as f32);
-                    let dest = Rectangle::new(*px as f32 - (minimap_cell_size as f32/2.0), *py as f32 - (minimap_cell_size as f32/2.0), minimap_cell_size as f32, minimap_cell_size as f32);
+                    let mm_size = minimap_cell_size as f32 * 1.4;
+                    let dest = Rectangle::new(*px as f32 - (mm_size/2.0), *py as f32 - (mm_size/2.0), mm_size, mm_size);
                     renderer.draw_texture_pro(ghost_tex, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
                 }
             }
