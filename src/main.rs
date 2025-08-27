@@ -488,6 +488,9 @@ fn main() {
   let mut warning_timer: f32 = 0.0;
   // when player wins, show win.png for a short time then return to the home menu
   let mut win_timer: f32 = 0.0;
+  // wall blink state used when a ghost sees the player: toggle every 0.5s
+  let mut wall_blink_timer: f32 = 0.0;
+  let mut wall_run_state: bool = false;
 
   // create framebuffer sized to home image if available, otherwise game size
   if let Some(ht) = sprite_home.as_ref() {
@@ -1139,6 +1142,18 @@ let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(
   // manage perseguir (chase) sound: play while any ghost sees player, stop when none do
   // but never start or keep perseguir playing while screamer is active
   let any_ghost_sees = ghosts.iter().any(|g| g.sees_player);
+  // update wall blinking when any ghost sees the player: toggle every 0.5s
+  if any_ghost_sees {
+    wall_blink_timer += dt;
+    if wall_blink_timer >= 0.5 {
+      wall_blink_timer = 0.0;
+      wall_run_state = !wall_run_state;
+    }
+  } else {
+    // reset blink state when no ghost sees player
+    wall_blink_timer = 0.0;
+    wall_run_state = false;
+  }
   if screamer_active {
     if perseguir_playing {
       if let Some(snd) = perseguir_sound.as_ref() {
@@ -1166,6 +1181,9 @@ let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(
 
 // choose wall texture based on whether any ghost currently sees the player
 let wall_to_use = if any_ghost_sees { wall_run_texture.as_ref().or(wall_texture.as_ref()) } else { wall_texture.as_ref() };
+
+// choose wall texture based on whether any ghost currently sees the player (blink every 0.5s)
+let wall_to_use = if any_ghost_sees && wall_run_state { wall_run_texture.as_ref().or(wall_texture.as_ref()) } else { wall_texture.as_ref() };
 
 framebuffer.swap_buffers(
   &mut window,
