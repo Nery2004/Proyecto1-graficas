@@ -438,14 +438,14 @@ fn main() {
           if cell == 'r' || cell == 'R' {
             let gx = (i as f32 + 0.5) * block_size as f32;
             let gy = (j as f32 + 0.5) * block_size as f32;
-            ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
+            ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'r', sees_player: false });
         // clear marker so minimap draws ghost from entity list only
         maze[j][i] = ' ';
       }
       if cell == 'c' || cell == 'C' {
         let gx = (i as f32 + 0.5) * block_size as f32;
         let gy = (j as f32 + 0.5) * block_size as f32;
-  ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
+  ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'c', sees_player: false });
         maze[j][i] = ' ';
       }
     }
@@ -676,13 +676,13 @@ fn main() {
             if cell == 'r' || cell == 'R' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'r', sees_player: false });
               maze[j][i] = ' ';
             }
             if cell == 'c' || cell == 'C' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'c', sees_player: false });
               maze[j][i] = ' ';
             }
           }
@@ -749,13 +749,13 @@ fn main() {
             if cell == 'r' || cell == 'R' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'r', sees_player: false });
               maze[j][i] = ' ';
             }
             if cell == 'c' || cell == 'C' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 100.0, kind: 'c', sees_player: false });
               maze[j][i] = ' ';
             }
           }
@@ -946,8 +946,8 @@ fn main() {
       render_maze(&mut framebuffer, &maze, block_size, &player);
       slices_opt = None;
     } else {
-  // choose flash color (#3d0202) for sky only when flashing
-  let flash_color = Color::new(61, 2, 2, 255); // #3d0202
+  // choose flash color for sky when flashing (use requested red #f44336)
+  let flash_color = Color::new(244, 67, 54, 255); // #f44336
   let sky_color = if sky_flash_state { flash_color } else { Color::BLACK };
   let floor_color = Color::new(18, 18, 20, 255);
   let s = render_world(&mut framebuffer, &maze, block_size, &player, sky_color, floor_color);
