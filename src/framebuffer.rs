@@ -84,6 +84,9 @@ impl Framebuffer {
     // alert sprites when ghost sees the player (red and celeste)
     alert_red_tex_opt: Option<&Texture2D>,
     alert_celeste_tex_opt: Option<&Texture2D>,
+    // screamer full-screen texture and active flag
+    screamer_tex_opt: Option<&Texture2D>,
+    screamer_active: bool,
     // per-ghost seen flags for red and celeste lists
     ghost_red_seen_opt: Option<&Vec<bool>>,
     ghost_celeste_seen_opt: Option<&Vec<bool>>,
@@ -253,6 +256,14 @@ impl Framebuffer {
             let counter_s = format!("{}/{}", collected_pills, total_pills);
             let counter_x = padding; let counter_y = (self.height as i32) - padding - font_size;
             renderer.draw_text(&counter_s, counter_x, counter_y, font_size, Color::WHITE);
+            // if screamer is active, draw the screamer texture fullscreen on top
+            if screamer_active {
+                if let Some(st) = screamer_tex_opt {
+                    let src = Rectangle::new(0.0, 0.0, st.width as f32, st.height as f32);
+                    let dest = Rectangle::new(0.0, 0.0, self.width as f32, self.height as f32);
+                    renderer.draw_texture_pro(st, src, dest, Vector2::new(0.0,0.0), 0.0, Color::WHITE);
+                }
+            }
         }
     }
 }

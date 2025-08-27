@@ -460,6 +460,19 @@ fn main() {
   let sprite_fantasma_alert_rojo = match sprite_fantasma_alert_rojo { Ok(t) => Some(t), Err(_) => None };
   let sprite_fantasma_alert_celeste = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve_celeste.png");
   let sprite_fantasma_alert_celeste = match sprite_fantasma_alert_celeste { Ok(t) => Some(t), Err(_) => None };
+  // screamer assets
+  let screamer_tex = window.load_texture(&raylib_thread, "assets/sprites/screamer.jpg");
+  let screamer_tex = match screamer_tex { Ok(t) => Some(t), Err(_) => None };
+  let screamer_sound = if Path::new("assets/audio/screamer.wav").exists() {
+    let path = CString::new("assets/audio/screamer.wav").unwrap();
+    let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
+    Some(s)
+  } else {
+    None
+  };
+  let mut screamer_active = false;
+  let mut screamer_timer: f32 = 0.0;
+  let mut screamer_playing = false;
 
   // timer for sky flash effect
   let mut sky_flash_timer: f32 = 0.0;
@@ -690,8 +703,25 @@ fn main() {
   let fps = if dt > 0.0 { (1.0 / dt).round() as i32 } else { 0 };
 
   // 3.5 move ghosts: simple AI - if within chase_radius chase player, else wander
+  // If screamer is active we pause ghost movement and countdown the screamer timer
   let chase_radius = 300.0;
-  for ghost in ghosts.iter_mut() {
+  if screamer_active {
+    // update screamer countdown
+    screamer_timer -= dt;
+    if screamer_timer <= 0.0 {
+      screamer_active = false;
+      // stop screamer sound if playing
+      if screamer_playing {
+        if let Some(snd) = screamer_sound.as_ref() {
+          unsafe { raylib::ffi::StopSound(*snd); }
+        }
+        screamer_playing = false;
+      }
+      // reset player position after screamer ends
+      player.pos = Vector2::new(150.0, 150.0);
+    }
+  } else {
+    for ghost in ghosts.iter_mut() {
     let to_player = player.pos - ghost.pos;
     let dist = to_player.length();
     let mut desired = ghost.dir;
@@ -736,6 +766,7 @@ fn main() {
         }
       }
     }
+    }
   }
 
   // detect ghost-player collision (simple distance check)
@@ -749,8 +780,25 @@ fn main() {
     }
   }
   if player_hit {
-    // simple response: reset player position to start
-    player.pos = Vector2::new(150.0, 150.0);
+    // trigger screamer instead of immediate reset
+    if !screamer_active {
+      screamer_active = true;
+      screamer_timer = 2.0;
+      // stop other sounds
+      if footsteps_playing {
+        if let Some(snd) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+        footsteps_playing = false;
+      }
+      if perseguir_playing {
+        if let Some(snd) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+        perseguir_playing = false;
+      }
+      // play screamer sound once
+      if let Some(snd) = screamer_sound.as_ref() {
+        unsafe { raylib::ffi::PlaySound(*snd); }
+        screamer_playing = true;
+      }
+    }
   }
 
 // 4. swap buffers - pass wall texture and slices when in 3D
@@ -833,6 +881,8 @@ framebuffer.swap_buffers(
   Some((player_minimap_x as u32, player_minimap_y as u32)),
   sprite_fantasma_alert_rojo.as_ref(),
   sprite_fantasma_alert_celeste.as_ref(),
+  screamer_tex.as_ref(),
+  screamer_active,
   Some(&ghost_red_seen),
   Some(&ghost_celeste_seen),
 );
