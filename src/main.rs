@@ -396,6 +396,13 @@ fn main() {
       Err(_) => None,
   };
 
+  // alternate wall texture used when a ghost sees the player
+  let wall_run_texture = window.load_texture(&raylib_thread, "assets/sprites/wall_run.jpg");
+  let wall_run_texture = match wall_run_texture {
+    Ok(t) => Some(t),
+    Err(_) => None,
+  };
+
   // Load portal texture for goal cell 'g'
   let portal_texture = window.load_texture(&raylib_thread, "assets/sprites/portal.jpg");
   let portal_texture = match portal_texture {
@@ -431,14 +438,14 @@ fn main() {
           if cell == 'r' || cell == 'R' {
             let gx = (i as f32 + 0.5) * block_size as f32;
             let gy = (j as f32 + 0.5) * block_size as f32;
-            ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'r', sees_player: false });
+            ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
         // clear marker so minimap draws ghost from entity list only
         maze[j][i] = ' ';
       }
       if cell == 'c' || cell == 'C' {
         let gx = (i as f32 + 0.5) * block_size as f32;
         let gy = (j as f32 + 0.5) * block_size as f32;
-        ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'c', sees_player: false });
+  ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
         maze[j][i] = ' ';
       }
     }
@@ -479,6 +486,8 @@ fn main() {
   let mut menu_sel: usize = 0; // 0 = Play, 1 = Salir
   let mut warning_active = false;
   let mut warning_timer: f32 = 0.0;
+  // when player wins, show win.png for a short time then return to the home menu
+  let mut win_timer: f32 = 0.0;
 
   // create framebuffer sized to home image if available, otherwise game size
   if let Some(ht) = sprite_home.as_ref() {
@@ -664,13 +673,13 @@ fn main() {
             if cell == 'r' || cell == 'R' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'r', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
               maze[j][i] = ' ';
             }
             if cell == 'c' || cell == 'C' {
               let gx = (i as f32 + 0.5) * block_size as f32;
               let gy = (j as f32 + 0.5) * block_size as f32;
-              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'c', sees_player: false });
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
               maze[j][i] = ' ';
             }
           }
@@ -683,6 +692,80 @@ fn main() {
       if press_escape { break; }
       thread::sleep(Duration::from_millis(16));
       continue;
+    }
+
+    // If player has won, count down the win timer and return to the main menu when elapsed
+    if game_win {
+      // start timer if not already running
+      if win_timer <= 0.0 {
+        win_timer = 2.0; // show win screen for 2 seconds
+      }
+      win_timer -= dt;
+      if win_timer <= 0.0 {
+        // ensure all sounds are stopped
+        if footsteps_playing {
+          if let Some(snd) = footsteps.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+          footsteps_playing = false;
+        }
+        if perseguir_playing {
+          if let Some(snd) = perseguir_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+          perseguir_playing = false;
+        }
+        if screamer_playing {
+          if let Some(snd) = screamer_sound.as_ref() { unsafe { raylib::ffi::StopSound(*snd); } }
+          screamer_playing = false;
+        }
+
+        // resize window back to home image if available
+        if let Some(ht) = sprite_home.as_ref() {
+          // safe to resize here (no active draw handle)
+          window.set_window_size(ht.width as i32, ht.height as i32);
+          window_width = ht.width as i32;
+          window_height = ht.height as i32;
+        }
+
+        // reset game data so next Play starts fresh
+        maze = load_maze("maze.txt");
+        pills.clear();
+        for j in 0..maze.len() {
+          for i in 0..maze[j].len() {
+            if maze[j][i] == '.' {
+              let wx = (i as f32 + 0.5) * block_size as f32;
+              let wy = (j as f32 + 0.5) * block_size as f32;
+              pills.push(Vector2::new(wx, wy));
+              maze[j][i] = ' ';
+            }
+          }
+        }
+        total_pills = pills.len() as i32;
+        collected_pills = 0;
+        ghosts.clear();
+        for j in 0..maze.len() {
+          for i in 0..maze[j].len() {
+            let cell = maze[j][i];
+            if cell == 'r' || cell == 'R' {
+              let gx = (i as f32 + 0.5) * block_size as f32;
+              let gy = (j as f32 + 0.5) * block_size as f32;
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'r', sees_player: false });
+              maze[j][i] = ' ';
+            }
+            if cell == 'c' || cell == 'C' {
+              let gx = (i as f32 + 0.5) * block_size as f32;
+              let gy = (j as f32 + 0.5) * block_size as f32;
+              ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 70.0, kind: 'c', sees_player: false });
+              maze[j][i] = ' ';
+            }
+          }
+        }
+        // reset player and flags
+        player.pos = Vector2::new(150.0, 150.0);
+        screamer_active = false; screamer_playing = false; screamer_timer = 0.0;
+        game_win = false;
+        in_menu = true;
+        menu_sel = 0;
+        // skip to next loop iteration so menu draws immediately
+        continue;
+      }
     }
 
     // 1. clear framebuffer
@@ -1081,10 +1164,13 @@ let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(
     }
   }
 
+// choose wall texture based on whether any ghost currently sees the player
+let wall_to_use = if any_ghost_sees { wall_run_texture.as_ref().or(wall_texture.as_ref()) } else { wall_texture.as_ref() };
+
 framebuffer.swap_buffers(
-    &mut window,
-    &raylib_thread,
-    wall_texture.as_ref(),
+  &mut window,
+  &raylib_thread,
+  wall_to_use,
     portal_texture.as_ref(),
     slices_opt.as_ref(),
     sprites_pastillas.as_ref(),
