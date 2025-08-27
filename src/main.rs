@@ -344,10 +344,14 @@ fn main() {
   // initialize audio via ffi
   use std::ffi::CString;
   unsafe { raylib::ffi::InitAudioDevice(); }
-  // load footsteps sound only if file exists to avoid raylib warning when missing
+  // load footsteps sound: prefer .wav, fallback to .ogg if present
   use std::path::Path;
   let footsteps = if Path::new("assets/audio/foot_steps.wav").exists() {
     let path = CString::new("assets/audio/foot_steps.wav").unwrap();
+    let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
+    Some(s)
+  } else if Path::new("assets/audio/foot_steps.ogg").exists() {
+    let path = CString::new("assets/audio/foot_steps.ogg").unwrap();
     let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
     Some(s)
   } else {
@@ -448,13 +452,19 @@ fn main() {
   const ROTATION_SPEED: f32 = std::f32::consts::PI / 2.0;
   let move_step = MOVE_SPEED * dt;
   let rot_step = ROTATION_SPEED * dt;
-  // mouse horizontal rotation (only X axis)
+  // mouse horizontal rotation (only X axis) but only while right mouse button is pressed
   let mouse_x = window.get_mouse_x() as f32;
   let mouse_dx = mouse_x - last_mouse_x;
-  last_mouse_x = mouse_x;
   let mouse_sensitivity: f32 = 0.005; // tweak to taste
-  // subtract dx so moving mouse right rotates camera to the right
-  player.a -= mouse_dx * mouse_sensitivity;
+  if window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_RIGHT) {
+    // subtract dx so moving mouse right rotates camera to the right
+    player.a -= mouse_dx * mouse_sensitivity;
+    // update last_mouse_x while actively rotating
+    last_mouse_x = mouse_x;
+  } else {
+    // not rotating; keep last_mouse_x in sync so next press doesn't jump
+    last_mouse_x = mouse_x;
+  }
   // also keep keyboard rotation as fallback
   if window.is_key_down(KeyboardKey::KEY_LEFT) {
     player.a += rot_step;
