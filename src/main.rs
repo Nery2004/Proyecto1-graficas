@@ -26,6 +26,27 @@ struct Ghost {
   dir: Vector2,
   speed: f32,
   kind: char, // 'r' red, 'c' celeste
+  sees_player: bool,
+}
+
+fn has_line_of_sight(maze: &Maze, block_size: usize, from: Vector2, to: Vector2) -> bool {
+  let dx = to.x - from.x; let dy = to.y - from.y; let dist = (dx*dx + dy*dy).sqrt();
+  if dist <= 0.0 { return true; }
+  let steps = (dist / (block_size as f32 * 0.2)).ceil() as usize; // sample every ~20% of a cell
+  for i in 1..=steps {
+    let t = i as f32 / steps as f32;
+    let x = from.x + dx * t;
+    let y = from.y + dy * t;
+    if x.is_nan() || y.is_nan() { continue; }
+    let cx = (x as isize) / (block_size as isize);
+    let cy = (y as isize) / (block_size as isize);
+    if cy < 0 || cx < 0 { return false; }
+    let ux = cy as usize; let vx = cx as usize;
+    if ux >= maze.len() { return false; }
+    if vx >= maze[ux].len() { return false; }
+    if maze[ux][vx] != ' ' { return false; }
+  }
+  true
 }
 
 fn cell_to_color(cell: char) -> Color {
@@ -106,8 +127,8 @@ fn render_world(
   let hh = framebuffer.height as f32 / 2.0;  // precalculated half height
 
   // draw sky (top half) and floor (bottom half)
-  // sky: deep blue (#03062e), floor: dark grey (near black)
-  let sky_color = Color::new(3, 6, 46, 255); // #03062e
+  // sky: black (user requested)
+  let sky_color = Color::BLACK;
   let floor_color = Color::new(18, 18, 20, 255); // very dark grey
 
   // sky
@@ -320,6 +341,20 @@ fn main() {
   let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
   framebuffer.set_background_color(Color::new(50, 50, 100, 255));
 
+  // initialize audio via ffi
+  use std::ffi::CString;
+  unsafe { raylib::ffi::InitAudioDevice(); }
+  // load footsteps sound only if file exists to avoid raylib warning when missing
+  use std::path::Path;
+  let footsteps = if Path::new("assets/audio/foot_steps.wav").exists() {
+    let path = CString::new("assets/audio/foot_steps.wav").unwrap();
+    let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
+    Some(s)
+  } else {
+    None
+  };
+  let mut footsteps_playing = false;
+
   let mut maze = load_maze("maze.txt");
   let mut player = Player {
     pos: Vector2::new(150.0, 150.0),
@@ -366,23 +401,25 @@ fn main() {
   for j in 0..maze.len() {
     for i in 0..maze[j].len() {
       let cell = maze[j][i];
-      if cell == 'r' || cell == 'R' {
-        let gx = (i as f32 + 0.5) * block_size as f32;
-        let gy = (j as f32 + 0.5) * block_size as f32;
-        ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'r' });
+          if cell == 'r' || cell == 'R' {
+            let gx = (i as f32 + 0.5) * block_size as f32;
+            let gy = (j as f32 + 0.5) * block_size as f32;
+            ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'r', sees_player: false });
         // clear marker so minimap draws ghost from entity list only
         maze[j][i] = ' ';
       }
       if cell == 'c' || cell == 'C' {
         let gx = (i as f32 + 0.5) * block_size as f32;
         let gy = (j as f32 + 0.5) * block_size as f32;
-        ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'c' });
+        ghosts.push(Ghost { pos: Vector2::new(gx, gy), dir: Vector2::new(1.0, 0.0), speed: 50.0, kind: 'c', sees_player: false });
         maze[j][i] = ' ';
       }
     }
   }
 
   let mut last_frame = Instant::now();
+  // track previous mouse X position for horizontal-only camera control
+  let mut last_mouse_x = window.get_mouse_x() as f32;
 
   // load sprite textures for minimap
   let sprites_pastillas = window.load_texture(&raylib_thread, "assets/sprites/pastillas.png");
@@ -391,6 +428,9 @@ fn main() {
   let sprite_fantasma_rojo = match sprite_fantasma_rojo { Ok(t) => Some(t), Err(_) => None };
   let sprite_fantasma_celeste = window.load_texture(&raylib_thread, "assets/sprites/fantasma_celeste.png");
   let sprite_fantasma_celeste = match sprite_fantasma_celeste { Ok(t) => Some(t), Err(_) => None };
+  // alert sprite when a ghost sees the player
+  let sprite_fantasma_alert = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve.png");
+  let sprite_fantasma_alert = match sprite_fantasma_alert { Ok(t) => Some(t), Err(_) => None };
 
   while !window.window_should_close() {
     // compute delta time (seconds)
@@ -408,19 +448,61 @@ fn main() {
   const ROTATION_SPEED: f32 = std::f32::consts::PI / 2.0;
   let move_step = MOVE_SPEED * dt;
   let rot_step = ROTATION_SPEED * dt;
+  // mouse horizontal rotation (only X axis)
+  let mouse_x = window.get_mouse_x() as f32;
+  let mouse_dx = mouse_x - last_mouse_x;
+  last_mouse_x = mouse_x;
+  let mouse_sensitivity: f32 = 0.005; // tweak to taste
+  // subtract dx so moving mouse right rotates camera to the right
+  player.a -= mouse_dx * mouse_sensitivity;
+  // also keep keyboard rotation as fallback
   if window.is_key_down(KeyboardKey::KEY_LEFT) {
     player.a += rot_step;
   }
   if window.is_key_down(KeyboardKey::KEY_RIGHT) {
     player.a -= rot_step;
   }
-  if window.is_key_down(KeyboardKey::KEY_DOWN) {
+  // play footsteps when any movement key is held (arrow keys or WASD)
+  let moving = window.is_key_down(KeyboardKey::KEY_DOWN)
+    || window.is_key_down(KeyboardKey::KEY_UP)
+    || window.is_key_down(KeyboardKey::KEY_LEFT)
+    || window.is_key_down(KeyboardKey::KEY_RIGHT)
+    || window.is_key_down(KeyboardKey::KEY_W)
+    || window.is_key_down(KeyboardKey::KEY_A)
+    || window.is_key_down(KeyboardKey::KEY_S)
+    || window.is_key_down(KeyboardKey::KEY_D);
+  if moving {
+    if !footsteps_playing {
+      if let Some(snd) = footsteps.as_ref() {
+        unsafe { raylib::ffi::PlaySound(*snd); }
+        footsteps_playing = true;
+      }
+    }
+  } else {
+    if footsteps_playing {
+      if let Some(snd) = footsteps.as_ref() {
+        unsafe { raylib::ffi::StopSound(*snd); }
+      }
+      footsteps_playing = false;
+    }
+  }
+  // forward / backward (W/S or Up/Down)
+  if window.is_key_down(KeyboardKey::KEY_S) || window.is_key_down(KeyboardKey::KEY_DOWN) {
     candidate.x -= move_step * player.a.cos();
     candidate.y -= move_step * player.a.sin();
   }
-  if window.is_key_down(KeyboardKey::KEY_UP) {
+  if window.is_key_down(KeyboardKey::KEY_W) || window.is_key_down(KeyboardKey::KEY_UP) {
     candidate.x += move_step * player.a.cos();
     candidate.y += move_step * player.a.sin();
+  }
+  // strafing (A/D)
+  if window.is_key_down(KeyboardKey::KEY_A) {
+    candidate.x += move_step * (player.a - std::f32::consts::PI / 2.0).cos();
+    candidate.y += move_step * (player.a - std::f32::consts::PI / 2.0).sin();
+  }
+  if window.is_key_down(KeyboardKey::KEY_D) {
+    candidate.x += move_step * (player.a + std::f32::consts::PI / 2.0).cos();
+    candidate.y += move_step * (player.a + std::f32::consts::PI / 2.0).sin();
   }
 
   // circular collision parameters
@@ -574,7 +656,9 @@ fn main() {
         desired = d;
       }
     }
-    ghost.dir = desired;
+  ghost.dir = desired;
+  // check line of sight
+  ghost.sees_player = has_line_of_sight(&maze, block_size, ghost.pos, player.pos);
     // attempt movement
     let move_step = ghost.dir * ghost.speed * dt;
   let candidate = ghost.pos + move_step;
@@ -637,6 +721,10 @@ let world_pills: Vec<Vector2> = pills.iter().map(|p| Vector2::new(p.x, p.y)).col
 let world_ghosts_red: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 let world_ghosts_celeste: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| Vector2::new(g.pos.x, g.pos.y)).collect();
 
+// build seen flags arrays aligned with world_ghosts vectors
+let ghost_red_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| g.sees_player).collect();
+let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| g.sees_player).collect();
+
 framebuffer.swap_buffers(
     &mut window,
     &raylib_thread,
@@ -663,7 +751,10 @@ framebuffer.swap_buffers(
     map_y0,
     map_w,
     map_h,
-    Some((player_minimap_x as u32, player_minimap_y as u32)),
+  Some((player_minimap_x as u32, player_minimap_y as u32)),
+  sprite_fantasma_alert.as_ref(),
+  Some(&ghost_red_seen),
+  Some(&ghost_celeste_seen),
 );
 
     thread::sleep(Duration::from_millis(16));
