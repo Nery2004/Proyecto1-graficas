@@ -358,6 +358,23 @@ fn main() {
     None
   };
   let mut footsteps_playing = false;
+  // load eat sound (play once on pill pickup)
+  let eat_sound = if Path::new("assets/audio/eat.wav").exists() {
+    let path = CString::new("assets/audio/eat.wav").unwrap();
+    let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
+    Some(s)
+  } else {
+    None
+  };
+  // load perseguir (chase) sound; we'll start/stop it while any ghost sees the player
+  let perseguir_sound = if Path::new("assets/audio/perseguir.wav").exists() {
+    let path = CString::new("assets/audio/perseguir.wav").unwrap();
+    let s = unsafe { raylib::ffi::LoadSound(path.as_ptr()) };
+    Some(s)
+  } else {
+    None
+  };
+  let mut perseguir_playing = false;
 
   let mut maze = load_maze("maze.txt");
   let mut player = Player {
@@ -576,6 +593,10 @@ fn main() {
   for &ri in remove_indexes.iter().rev() {
     pills.remove(ri);
     collected_pills += 1;
+    // play eat sound once per pill collected
+    if let Some(snd) = eat_sound.as_ref() {
+      unsafe { raylib::ffi::PlaySound(*snd); }
+    }
   }
 
     let mut mode = "3D";
@@ -734,6 +755,24 @@ let world_ghosts_celeste: Vec<Vector2> = ghosts.iter().filter(|g| g.kind == 'c')
 // build seen flags arrays aligned with world_ghosts vectors
 let ghost_red_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'r').map(|g| g.sees_player).collect();
 let ghost_celeste_seen: Vec<bool> = ghosts.iter().filter(|g| g.kind == 'c').map(|g| g.sees_player).collect();
+
+  // manage perseguir (chase) sound: play while any ghost sees player, stop when none do
+  let any_ghost_sees = ghosts.iter().any(|g| g.sees_player);
+  if any_ghost_sees {
+    if !perseguir_playing {
+      if let Some(snd) = perseguir_sound.as_ref() {
+        unsafe { raylib::ffi::PlaySound(*snd); }
+        perseguir_playing = true;
+      }
+    }
+  } else {
+    if perseguir_playing {
+      if let Some(snd) = perseguir_sound.as_ref() {
+        unsafe { raylib::ffi::StopSound(*snd); }
+      }
+      perseguir_playing = false;
+    }
+  }
 
 framebuffer.swap_buffers(
     &mut window,
