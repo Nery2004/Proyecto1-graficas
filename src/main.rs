@@ -329,8 +329,10 @@ fn render_minimap(
 }
 
 fn main() {
-  let window_width = 1300;
-  let window_height = 900;
+  let game_width = 1300;
+  let game_height = 900;
+  let mut window_width = game_width;
+  let mut window_height = game_height;
   let block_size = 100;
 
   let (mut window, raylib_thread) = raylib::init()
@@ -339,8 +341,7 @@ fn main() {
     .log_level(TraceLogLevel::LOG_WARNING)
     .build();
 
-  let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
-  framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+  // framebuffer will be created after we possibly resize to the home image size
 
   // initialize audio via ffi
   use std::ffi::CString;
@@ -460,6 +461,31 @@ fn main() {
   let sprite_fantasma_alert_rojo = match sprite_fantasma_alert_rojo { Ok(t) => Some(t), Err(_) => None };
   let sprite_fantasma_alert_celeste = window.load_texture(&raylib_thread, "assets/sprites/fantasma_cuando_te_ve_celeste.png");
   let sprite_fantasma_alert_celeste = match sprite_fantasma_alert_celeste { Ok(t) => Some(t), Err(_) => None };
+  // home screen texture
+  let sprite_home = window.load_texture(&raylib_thread, "assets/sprites/home.png");
+  let sprite_home = match sprite_home { Ok(t) => Some(t), Err(_) => None };
+
+  // menu state: start at home screen
+  let mut in_menu = true;
+  let mut menu_sel: usize = 0; // 0 = Play, 1 = Salir
+
+  // create framebuffer sized to home image if available, otherwise game size
+  if let Some(ht) = sprite_home.as_ref() {
+    // resize window to home image dimensions
+    let hw = ht.width as i32; let hh = ht.height as i32;
+    window.set_window_size(hw, hh);
+    window_width = hw as i32;
+    window_height = hh as i32;
+    // create framebuffer sized to home image
+    let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
+    framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+    // put framebuffer into scope for later use by game loop
+    drop(framebuffer);
+  }
+
+  // create default framebuffer for game (will be recreated when entering Play)
+  let mut framebuffer = Framebuffer::new(game_width as u32, game_height as u32);
+  framebuffer.set_background_color(Color::new(50, 50, 100, 255));
   // screamer assets
   let screamer_tex = window.load_texture(&raylib_thread, "assets/sprites/screamer.jpg");
   let screamer_tex = match screamer_tex { Ok(t) => Some(t), Err(_) => None };
@@ -482,6 +508,67 @@ fn main() {
     let now = Instant::now();
     let dt = now.duration_since(last_frame).as_secs_f32();
     last_frame = now;
+
+    // If we're in the main menu, draw it and handle input; skip the game update until Play is chosen
+    if in_menu {
+      // poll input before drawing to avoid borrowing `window` while drawing
+      let press_down = window.is_key_pressed(KeyboardKey::KEY_DOWN) || window.is_key_pressed(KeyboardKey::KEY_S);
+      let press_up = window.is_key_pressed(KeyboardKey::KEY_UP) || window.is_key_pressed(KeyboardKey::KEY_W);
+      let press_enter = window.is_key_pressed(KeyboardKey::KEY_ENTER) || window.is_key_pressed(KeyboardKey::KEY_KP_ENTER);
+      let press_escape = window.is_key_pressed(KeyboardKey::KEY_ESCAPE);
+
+      if press_down {
+        menu_sel = (menu_sel + 1) % 2;
+      }
+      if press_up {
+        menu_sel = (menu_sel + 2 - 1) % 2; // safe decrement mod 2
+      }
+      if press_enter {
+        if menu_sel == 0 {
+          // resize window back to game resolution and recreate framebuffer
+          window.set_window_size(game_width as i32, game_height as i32);
+          window_width = game_width;
+          window_height = game_height;
+          framebuffer = Framebuffer::new(game_width as u32, game_height as u32);
+          framebuffer.set_background_color(Color::new(50, 50, 100, 255));
+          in_menu = false; // start game
+        } else {
+          // exit
+          break;
+        }
+      }
+      if press_escape {
+        break;
+      }
+
+      // draw menu after input handling
+      let mut d = window.begin_drawing(&raylib_thread);
+      // draw home background if available
+      if let Some(ht) = sprite_home.as_ref() {
+        d.draw_texture(ht, 0, 0, Color::WHITE);
+      } else {
+        d.clear_background(Color::BLACK);
+      }
+      // draw menu options centered
+      let font_size = 48;
+      let play_y = (window_width / 2) as i32 - 40; // approximate vertical placement
+      let exit_y = play_y + 80;
+      let cx = (window_width / 2) as i32 - 80;
+      if menu_sel == 0 {
+        d.draw_text("Play", cx, play_y, font_size, Color::YELLOW);
+      } else {
+        d.draw_text("Play", cx, play_y, font_size, Color::WHITE);
+      }
+      if menu_sel == 1 {
+        d.draw_text("Salir", cx, exit_y, font_size, Color::YELLOW);
+      } else {
+        d.draw_text("Salir", cx, exit_y, font_size, Color::WHITE);
+      }
+
+      // next frame
+      thread::sleep(Duration::from_millis(16));
+      continue;
+    }
 
     // update sky flash timer based on whether any ghost currently sees the player
     let any_ghost_sees_now = ghosts.iter().any(|g| g.sees_player);
